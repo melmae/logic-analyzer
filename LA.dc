@@ -1,0 +1,101 @@
+###################################
+# Read in the verilog files first #
+###################################
+read_file -format sverilog { ./LA_dig.sv\
+                            ./UART_wrapper.sv\
+							./UART.sv\
+							./UART_rx.sv\
+							./UART_tx.sv\
+							./UART_RX_prot.sv\
+							./RAMqueue-1.sv\
+							./dig_core.sv\
+							./cmd_cfg.sv\
+							./capture.sv\
+							./channel_sample.sv\
+							./trigger_logic.sv\
+							./trigger.sv\
+							./prot_trig.sv\
+							./chnnl_trig.sv\
+							./clk_rst_smpl.sv\
+							./pwm8.sv\
+							./SPI_RX.sv\
+							./dual_PWM.sv}
+							
+						
+###################################
+# Set Current Design to top level #
+###################################
+set current_design LA_dig
+
+##############################
+# Constrain and assign clock #
+##############################
+create_clock -name "clk400MHz" -period 1 -waveform {0 0.5} {clk400MHz}
+set_dont_touch_network [find port clk400MHz]
+
+create_generated_clock -name "clk" -source [get_port clk400MHz] -divide_by 4 [get_pins iCLKRST/clk]
+set_dont_touch_network [get_pins iCLKRST/clk]
+create_generated_clock -name "smpl_clk" -source [get_port clk400MHz] -divide_by 1 [get_pins iCLKRST/smpl_clk]
+
+#####################################
+# Constrain input timings and drive #
+#####################################
+
+set CH_inputs {CH*}
+set_input_delay 0.25 -clock smpl_clk -clock_fall $CH_inputs
+set_input_delay 0.25 -clock clk400MHz {RST_n locked}
+set_input_delay 0.25 -clock clk {RX}
+
+set_driving_cell -lib_cell NAND2X1_RVT -library saed32rvt_tt0p85v25c [all_inputs]
+set_drive 0.1 RST_n
+
+#####################################
+# Constrain output timing and loads #
+#####################################
+set_output_delay -clock clk 0.5 [all_outputs]
+set_load 0.05 [all_outputs]
+
+####################################
+# Set wireload and transition time #
+####################################
+set_wire_load_model -name 16000 -library saed32rvt_tt0p85v25c
+set_max_transition 0.15 [current_design]
+
+###########################
+## Deal with false paths ##
+###########################
+set_false_path -from [get_cell iDIG/iCMD/decimator*]
+set_false_path -from [get_cell iCOMM/cmd_high*]
+
+######################
+# Compile the design #
+######################
+compile -map_effort medium
+
+#########################################
+# Set clock uncertainty and do fix hold #
+#########################################
+set_clock_uncertainty 0.2 clk
+set_fix_hold clk
+
+#####################
+# Flatten hierarchy #
+#####################
+ungroup -all -flatten
+
+###############
+# 2nd compile #
+###############
+compile -map_effort medium
+
+####################################
+# Generate timing and area reports #
+####################################
+report_timing -delay max > LA_max_timing.txt
+report_timing -delay min > LA_min_timing.txt
+report_area > LA_area_report.txt
+
+###########################################
+# Write out resulting synthesized netlist #
+###########################################
+write -format verilog LA_dig -output LA_dig.vg
